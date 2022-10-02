@@ -4,12 +4,11 @@ Using these fields, your functions can read and write the necessary data to exec
 Go to the Lambda dashboard and create a new Lambda function with a descriptive name like "serializeImageData" and select thr 'Python 3.8' runtime. Add the same permissions as the SageMaker role you created earlier. (Reminder: you do this in the Configuration tab under "Permissions"). Once you're ready, use the starter code below to craft your Lambda handler:
 """
 
+
 import json
 import boto3
 import base64
-import sagemaker
-from sagemaker.serializers import IdentitySerializer
-s3 = boto3.client('s3')
+s3 = boto3.resource('s3')
 
 def lambda_handler(event, context):
     """A function to serialize target data from S3"""
@@ -44,9 +43,14 @@ Because this Lambda will have runtime dependencies (i.e. the SageMaker SDK) you'
 
 Create a new Lambda function with the same rights and a descriptive name, then fill in the starter code below for your classifier Lambda.
 """
+import json
+import base64
+import boto3
 
 # Fill this in with the name of your deployed model
-ENDPOINT = endpoint
+ENDPOINT = 'image-classification-2022-10-02-05-49-49-650'
+
+runtime= boto3.client('runtime.sagemaker')
 
 def lambda_handler(event, context):
 
@@ -54,18 +58,13 @@ def lambda_handler(event, context):
     image = base64.b64decode(event['image_data'])
 
     # Instantiate a Predictor
-    predictor = sagemaker.predictor.Predictor(
-    endpoint_name= ENDPOINT, sagemaker_session= session
-)
-
-    # For this model the IdentitySerializer needs to be "image/png"
-    predictor.serializer = IdentitySerializer("image/png")
+    response = runtime.invoke_endpoint(EndpointName=ENDPOINT,
+                                       ContentType='image/png',
+                                       Body=image)
     
     # Make a prediction:
-    inferences = predictor.predict(image)
+    event["inferences"] = json.loads(response['Body'].read().decode('utf-8'))
     
-    # We return the data back to the Step Function    
-    event["inferences"] = inferences.decode('utf-8')
     return {
         'statusCode': 200,
         'body': json.dumps(event)
@@ -73,7 +72,9 @@ def lambda_handler(event, context):
 """
 Finally, we need to filter low-confidence inferences. Define a threshold between 1.00 and 0.000 for your model: what is reasonble for you? If the model predicts at `.70` for it's highest confidence label, do we want to pass that inference along to downstream systems? Make one last Lambda function and tee up the same permissions:
 """     
-THRESHOLD = .93
+import json
+        
+THRESHOLD = .90
 
 def lambda_handler(event, context):
     
